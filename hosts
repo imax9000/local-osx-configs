@@ -1,1 +1,1 @@
-localhost	ansible_connection=local
+localhost	ansible_connection=local ansible_become_method=sudo ansible_become_flags="-H -S"
