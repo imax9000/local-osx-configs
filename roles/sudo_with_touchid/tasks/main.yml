@@ -1,0 +1,26 @@
+---
+- vars:
+    path: /etc/pam.d/sudo
+  become: "{{ not ansible_check_mode }}"
+  block:
+    - name: 'Add pam_tid.so'
+      lineinfile:
+        path: "{{ path }}"
+        line: 'auth     sufficient   pam_tid.so'
+        regexp: '^auth.*pam_tid\.so'
+        firstmatch: yes
+        insertbefore: '^auth.*'
+
+    - name: 'Check if pam_reattach installed'
+      stat:
+        path: '/usr/local/lib/pam/pam_reattach.so'
+      register: pam_reattach
+
+    - name: 'Add pam_reattach.so'
+      when: pam_reattach.stat.exists
+      lineinfile:
+        path: "{{ path }}"
+        line: 'auth     optional     pam_reattach.so'
+        regexp: '^auth.*pam_reattach\.so'
+        firstmatch: yes
+        insertbefore: '^auth.*'

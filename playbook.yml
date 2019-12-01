@@ -1,0 +1,5 @@
+---
+- hosts: all
+  roles:
+    - sudo_with_touchid
+#  become: yes
