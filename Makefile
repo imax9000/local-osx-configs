@@ -1,6 +1,6 @@
 .PHONY: all check apply
 
-ansible-playbook=ansible-playbook -i hosts playbook.yml
+ansible-playbook=ansible-playbook -i hosts.yml playbook.yml
 
 all: check
 
