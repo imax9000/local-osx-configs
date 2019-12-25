@@ -8,4 +8,4 @@ check:
 	$(ansible-playbook) --check --diff
 
 apply:
-	$(ansible-playbook)
+	$(ansible-playbook) --diff
