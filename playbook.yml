@@ -2,3 +2,10 @@
 - hosts: all
   roles:
     - sudo_with_touchid
+  tasks:
+    - name: 'Tweak pmset parameters'
+      become: "{{ not ansible_check_mode }}"
+      osx_pmset:
+        on_battery:
+          standbydelayhigh: "{{ 48*3600 }}"
+          standbydelaylow: "{{ 25*3600 }}"
