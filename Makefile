@@ -1,11 +1,14 @@
-.PHONY: all check apply
+.PHONY: all check apply install-deps
 
 ansible-playbook=ansible-playbook -i hosts.yml playbook.yml
 
 all: check
 
-check:
+install-deps:
+	ansible-galaxy install -r requirements.yml
+
+check: install-deps
 	$(ansible-playbook) --check --diff
 
-apply:
+apply: install-deps
 	$(ansible-playbook) --diff
