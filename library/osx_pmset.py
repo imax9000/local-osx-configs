@@ -12,9 +12,16 @@ module: oxs_pmset
 
 short_description: Manage power management configuration exposed by pmset
 
+description: >
+  Allows changing power management settings by invoking `pmset`. Configuration
+  dicts `on_battery` and `on_charger` can have any key present in the output 
+  of `pmset -g custom`.
+
 options:
-    on_battery: settings on battery power
-    on_charger: settings when connected to power adapter
+    on_battery:
+        description: settings on battery power
+    on_charger:
+        description: settings when connected to power adapter
 '''
 
 EXAMPLES = r''' # '''
@@ -23,6 +30,7 @@ from ansible.module_utils.basic import AnsibleModule
 
 
 def parse_pmset_output(output):
+    """Parses `pmset -g custom` into a 2-level dict."""
     r = {}
     for line in output.split('\n'):
         if line == '':
@@ -37,94 +45,54 @@ def parse_pmset_output(output):
 
 
 def run_module():
-    on_battery_params = dict(
-        str_params=['hibernatefile'],
-        int_params=[
-            'acwake', 'disksleep', 'displaysleep', 'gpuswitch', 'halfdim',
-            'hibernatemode', 'highstandbythreshold', 'lessbright', 'lidwake',
-            'powernap', 'proximitywake', 'sleep', 'standby',
-            'standbydelayhigh', 'standbydelaylow', 'tcpkeepalive',
-            'ttyskeepawake'
-        ])
-    on_charger_params = dict(
-        str_params=['hibernatefile'],
-        int_params=[
-            'acwake', 'disksleep', 'displaysleep', 'gpuswitch', 'halfdim',
-            'hibernatemode', 'highstandbythreshold', 'lidwake',
-            'networkoversleep', 'powernap', 'proximitywake', 'sleep',
-            'standby', 'standbydelayhigh', 'standbydelaylow', 'tcpkeepalive',
-            'ttyskeepawake', 'womp'
-        ],
-    )
-
-    def make_params(desc):
-        params = dict()
-        params.update({
-            param: dict(type='str', required=False)
-            for param in desc['str_params']
-        })
-        params.update({
-            param: dict(type='int', required=False)
-            for param in desc['int_params']
-        })
-        return dict(
-            type='dict',
-            required=False,
-            default=dict(),
-            options=params,
-        )
-
     module_args = dict(
-        on_battery=make_params(on_battery_params),
-        on_charger=make_params(on_charger_params),
+        on_battery=dict(type='dict', required=False, default=dict()),
+        on_charger=dict(type='dict', required=False, default=dict()),
     )
-    result = dict(changed=False, )
+    result = dict(changed=False, diff=dict(before='', after=''))
     module = AnsibleModule(argument_spec=module_args, supports_check_mode=True)
 
-    exitcode, stdout, stderr = module.run_command(["pmset", "-g", "custom"])
-    if exitcode != 0:
-        module.fail_json(msg='pmset returned non-zero exit code',
-                         exitcode=exitcode,
-                         stderr=stderr,
-                         **result)
+    _, stdout, _ = module.run_command(["pmset", "-g", "custom"], check_rc=True)
 
-    result['diff'] = dict(before='', after='')
-
-    changes = []
+    commands = []
     output = parse_pmset_output(stdout)
-    on_battery = output['Battery Power']
-    on_charger = output['AC Power']
-    for k, v in module.params['on_battery'].items():
-        if v is None: continue
-        orig = on_battery[k]
-        if isinstance(v, int):
-            orig = int(orig)
-        if orig != v:
-            result['changed'] = True
-            result['diff']['before'] += '{block}.{param}={val}\n'.format(
-                block='on_battery', param=k, val=orig)
-            result['diff']['after'] += '{block}.{param}={val}\n'.format(
-                block='on_battery', param=k, val=v)
-            changes.append(['-b', k, v])
-    for k, v in module.params['on_charger'].items():
-        if v is None: continue
-        orig = on_charger[k]
-        if isinstance(v, int):
-            orig = int(orig)
-        if orig != v:
-            result['changed'] = True
-            result['diff']['before'] += '{block}.{param}={val}\n'.format(
-                block='on_charger', param=k, val=orig)
-            result['diff']['after'] += '{block}.{param}={val}\n'.format(
-                block='on_charger', param=k, val=v)
-            changes.append(['-c', k, v])
+    def add_diff(block, param, old_value, new_value):
+        result['diff']['before'] += '{block}.{param}={val}\n'.format(
+            block=block, param=param, val=old_value)
+        result['diff']['after'] += '{block}.{param}={val}\n'.format(
+            block=block, param=param, val=new_value)        
 
+    blocks = [
+        ('on_battery', '-b', output['Battery Power']),
+        ('on_charger', '-c', output['AC Power']),
+    ]
+    for block, mode_flag, current_values in blocks:
+        # Iterate over user-specified parameters and check if there's anything
+        # to change.
+        for param, value in module.params[block].items():
+            if value is None: continue
+            if param not in current_values:
+                module.fail_json(msg=(
+                    '{} is not present in pmset output. Run '
+                    '`pmset -g custom` to see the list of valid parameters'
+                ).format(param),
+                                 **result)
+            orig = current_values[param]
+            if isinstance(value, int):
+                orig = int(orig)
+            if orig != value:
+                add_diff(block, param, orig, value)
+                commands.append(['pmset', mode_flag, param, value])
+
+    if commands:
+        result['changed'] = True
     if module.check_mode:
         module.exit_json(**result)
 
-    for change in changes:
-        cmd = ["pmset"] + [str(v) for v in change]
-        print("Running: {}".format(" ".join(cmd)))
+    for command in commands:
+        # Explicitly convert all arguments to strings, so that
+        # module.run_command doesn't choke on ints.
+        cmd = [str(v) for v in command]
         module.run_command(cmd, check_rc=True)
 
     module.exit_json(**result)
